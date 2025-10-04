@@ -1,5 +1,6 @@
 package com.aryan.expensemanager
 
+import ApprovalRulesScreen
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
 
 @Composable
 fun ExpenseManagementApp() {
@@ -86,6 +88,13 @@ fun ExpenseManagementApp() {
 
         composable("users") {
             UserManagementScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // ADD THIS MISSING ROUTE
+        composable("rules") {
+            ApprovalRulesScreen(
                 onBack = { navController.popBackStack() }
             )
         }
