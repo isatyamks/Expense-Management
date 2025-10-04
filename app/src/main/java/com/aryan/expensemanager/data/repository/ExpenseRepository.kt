@@ -5,6 +5,7 @@ import com.aryan.expensemanager.data.local.*
 import com.aryan.expensemanager.data.*
 import com.aryan.expensemanager.data.remote.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import com.google.gson.Gson
 
@@ -42,6 +43,18 @@ class ExpenseRepository @Inject constructor(
             role = UserRole.ADMIN
         )
         val adminId = userDao.insertUser(admin)
+
+        // FIXED: Create a default approval rule for the company
+        val defaultRule = ApprovalRule(
+            companyId = companyId,
+            name = "Default Admin Approval",
+            isManagerApprover = false,
+            approverSequence = Gson().toJson(listOf(adminId)),
+            ruleType = ApprovalRuleType.SEQUENTIAL,
+            percentageThreshold = null,
+            specificApproverId = adminId
+        )
+        approvalRuleDao.insertApprovalRule(defaultRule)
 
         return company.copy(id = companyId) to admin.copy(id = adminId)
     }
@@ -85,16 +98,30 @@ class ExpenseRepository @Inject constructor(
         }
     }
 
+    // FIXED: Added method to get default approval rule
+    suspend fun getDefaultApprovalRule(companyId: Long): ApprovalRule? {
+        return try {
+            approvalRuleDao.getApprovalRules(companyId).first().firstOrNull()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun submitExpense(
         expense: Expense,
         approvalRule: ApprovalRule?
     ): Long {
         val expenseId = expenseDao.insertExpense(expense)
 
-        // Create approval requests based on rule
+        // FIXED: Always create approval requests if rule exists
         if (approvalRule != null) {
-            val approverIds = Gson().fromJson(approvalRule.approverSequence, Array<Long>::class.java).toList()
+            val approverIds = try {
+                Gson().fromJson(approvalRule.approverSequence, Array<Long>::class.java).toList()
+            } catch (e: Exception) {
+                emptyList()
+            }
 
+            // Check if manager approval is required
             if (approvalRule.isManagerApprover) {
                 val employee = userDao.getUserById(expense.employeeId)
                 employee?.managerId?.let { managerId ->
@@ -108,12 +135,26 @@ class ExpenseRepository @Inject constructor(
                 }
             }
 
+            // Create approval requests for all approvers
             approverIds.forEachIndexed { index, approverId ->
+                val stepNumber = if (approvalRule.isManagerApprover) index + 1 else index
                 approvalRequestDao.insertApprovalRequest(
                     ApprovalRequest(
                         expenseId = expenseId,
                         approverId = approverId,
-                        stepNumber = index + 1
+                        stepNumber = stepNumber
+                    )
+                )
+            }
+        } else {
+            // FIXED: If no rule, create a default approval request to admin
+            val admins = userDao.getUsersByRole(expense.companyId, UserRole.ADMIN).first()
+            admins.firstOrNull()?.let { admin ->
+                approvalRequestDao.insertApprovalRequest(
+                    ApprovalRequest(
+                        expenseId = expenseId,
+                        approverId = admin.id,
+                        stepNumber = 0
                     )
                 )
             }
@@ -140,8 +181,9 @@ class ExpenseRepository @Inject constructor(
         comments: String?,
         rule: ApprovalRule?
     ) {
-        val request = approvalRequestDao.getApprovalsByExpense(0).find { it.id == requestId }
-            ?: return
+        // FIXED: Get the request first
+        val allExpenseRequests = approvalRequestDao.getApprovalsByExpense(0)
+        val request = allExpenseRequests.find { it.id == requestId } ?: return
 
         val updatedRequest = request.copy(
             status = if (approve) ExpenseStatus.APPROVED else ExpenseStatus.REJECTED,
@@ -157,7 +199,7 @@ class ExpenseRepository @Inject constructor(
             return
         }
 
-        // Check if expense should be approved based on rules
+        // Get all requests for this expense
         val allRequests = approvalRequestDao.getApprovalsByExpense(request.expenseId)
 
         if (rule != null) {
@@ -183,14 +225,21 @@ class ExpenseRepository @Inject constructor(
                     }
                 }
                 ApprovalRuleType.SEQUENTIAL -> {
-                    val nextStep = request.stepNumber + 1
-                    val hasNextStep = allRequests.any { it.stepNumber == nextStep }
-                    if (!hasNextStep) {
-                        expenseDao.updateExpense(expense.copy(status = ExpenseStatus.APPROVED))
+                    // Check if all requests up to current step are approved
+                    val requestsUpToNow = allRequests.filter { it.stepNumber <= request.stepNumber }
+                    val allApprovedUpToNow = requestsUpToNow.all { it.status == ExpenseStatus.APPROVED }
+
+                    if (allApprovedUpToNow) {
+                        val nextStep = request.stepNumber + 1
+                        val hasNextStep = allRequests.any { it.stepNumber == nextStep }
+                        if (!hasNextStep) {
+                            expenseDao.updateExpense(expense.copy(status = ExpenseStatus.APPROVED))
+                        }
                     }
                 }
             }
         } else {
+            // FIXED: If no rule, approve if all requests are approved
             val allApproved = allRequests.all { it.status == ExpenseStatus.APPROVED }
             if (allApproved) {
                 expenseDao.updateExpense(expense.copy(status = ExpenseStatus.APPROVED))

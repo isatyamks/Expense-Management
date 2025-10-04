@@ -42,6 +42,10 @@ class AuthViewModel @Inject constructor(
 
     init {
         loadCountries()
+        // Try to restore session on init
+        viewModelScope.launch {
+            userSession.restoreSession()
+        }
     }
 
     private fun loadCountries() {
@@ -195,19 +199,25 @@ class ExpenseViewModel @Inject constructor(
                 date = date
             )
 
-            repository.submitExpense(expense, null)
+            // FIXED: Get default approval rule and pass it
+            val approvalRule = repository.getDefaultApprovalRule(company.id)
+            repository.submitExpense(expense, approvalRule)
         }
     }
 
     fun approveExpense(requestId: Long, comments: String?) {
         viewModelScope.launch {
-            repository.approveOrRejectExpense(requestId, true, comments, null)
+            val company = userSession.currentCompany.value ?: return@launch
+            val approvalRule = repository.getDefaultApprovalRule(company.id)
+            repository.approveOrRejectExpense(requestId, true, comments, approvalRule)
         }
     }
 
     fun rejectExpense(requestId: Long, comments: String?) {
         viewModelScope.launch {
-            repository.approveOrRejectExpense(requestId, false, comments, null)
+            val company = userSession.currentCompany.value ?: return@launch
+            val approvalRule = repository.getDefaultApprovalRule(company.id)
+            repository.approveOrRejectExpense(requestId, false, comments, approvalRule)
         }
     }
 }

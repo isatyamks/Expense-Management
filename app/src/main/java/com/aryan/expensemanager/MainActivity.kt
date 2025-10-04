@@ -1,15 +1,19 @@
 package com.aryan.expensemanager
 
-import ApprovalRulesScreen
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.aryan.expensemanager.screen.ApprovalRulesScreen
 import com.aryan.expensemanager.screen.ApprovalsScreen
 import com.aryan.expensemanager.screen.DashboardScreen
 import com.aryan.expensemanager.screen.ExpenseListScreen
@@ -17,6 +21,7 @@ import com.aryan.expensemanager.screen.LoginScreen
 import com.aryan.expensemanager.screen.SignupScreen
 import com.aryan.expensemanager.screen.SubmitExpenseScreen
 import com.aryan.expensemanager.screen.UserManagementScreen
+import com.aryan.expensemanager.viewModel.AuthViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 
@@ -37,23 +42,47 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ExpenseManagementApp() {
     val navController = rememberNavController()
+    val authViewModel: AuthViewModel = hiltViewModel()
+    val currentUser by authViewModel.currentUser.collectAsState()
 
-    NavHost(navController = navController, startDestination = "login") {
+    // FIXED: Determine start destination based on session
+    val startDestination = if (currentUser != null) "dashboard" else "login"
+
+    NavHost(navController = navController, startDestination = startDestination) {
         composable("login") {
             LoginScreen(
-                onLoginSuccess = { navController.navigate("dashboard") },
+                onLoginSuccess = {
+                    navController.navigate("dashboard") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
                 onNavigateToSignup = { navController.navigate("signup") }
             )
         }
 
         composable("signup") {
             SignupScreen(
-                onSignupSuccess = { navController.navigate("dashboard") },
-                onNavigateToLogin = { navController.navigate("login") }
+                onSignupSuccess = {
+                    navController.navigate("dashboard") {
+                        popUpTo("signup") { inclusive = true }
+                    }
+                },
+                onNavigateToLogin = {
+                    navController.popBackStack()
+                }
             )
         }
 
         composable("dashboard") {
+            // FIXED: Redirect to login if user is logged out
+            LaunchedEffect(currentUser) {
+                if (currentUser == null) {
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
+
             DashboardScreen(
                 onNavigateToExpenses = { navController.navigate("expenses") },
                 onNavigateToApprovals = { navController.navigate("approvals") },
@@ -61,7 +90,7 @@ fun ExpenseManagementApp() {
                 onNavigateToRules = { navController.navigate("rules") },
                 onLogout = {
                     navController.navigate("login") {
-                        popUpTo("login") { inclusive = true }
+                        popUpTo(0) { inclusive = true }
                     }
                 }
             )
@@ -92,7 +121,6 @@ fun ExpenseManagementApp() {
             )
         }
 
-        // ADD THIS MISSING ROUTE
         composable("rules") {
             ApprovalRulesScreen(
                 onBack = { navController.popBackStack() }

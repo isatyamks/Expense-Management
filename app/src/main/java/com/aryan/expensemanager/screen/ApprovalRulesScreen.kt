@@ -1,3 +1,5 @@
+package com.aryan.expensemanager.screen
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +51,9 @@ fun ApprovalRulesScreen(
                         Text("Type: ${rule.ruleType.name}", style = MaterialTheme.typography.bodyMedium)
                         if (rule.isManagerApprover) {
                             Text("Manager approval required", style = MaterialTheme.typography.bodySmall)
+                        }
+                        rule.percentageThreshold?.let {
+                            Text("Threshold: $it%", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
